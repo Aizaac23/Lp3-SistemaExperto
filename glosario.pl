@@ -14,3 +14,11 @@ descripcion(muestreo_sistematico,
 display_glosario :-
     writeln("\n📘 Glosario de técnicas de muestreo:"),
     forall(descripcion(T, D), format("- ~w: ~w~n", [T, D])).
+
+
+% Mostrar glosario (alias para display_glosario o definelo aquí)
+mostrar_glosario :-
+    writeln("\n📘 Glosario de técnicas de muestreo:"),
+    forall(descripcion(Tipo, Desc),
+        format("- ~w: ~w~n", [Tipo, Desc])
+    ).
