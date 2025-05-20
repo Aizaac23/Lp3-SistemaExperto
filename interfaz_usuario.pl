@@ -76,7 +76,7 @@ leer_respuesta(Resp) :-
     read_line_to_string(user_input, Raw),
     string_lower(Raw, L),
     ( member(L, ["si","no"]) -> Resp = L
-    ; writeln("Por favor, responde 'si' o 'no'."), leer_respuesta(Resp)
+    ; writeln(""), leer_respuesta(Resp)
     ).
 
 % Limpiar hechos ingresados
