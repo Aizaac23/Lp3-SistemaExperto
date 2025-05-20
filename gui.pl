@@ -2,6 +2,10 @@
 % Interfaz web para LP3-SistemaExperto
 % Requiere SWI-Prolog con soporte HTTP
 
+% Configuración UTF-8 para caracteres con tildes
+:- set_prolog_flag(encoding, utf8).
+:- set_prolog_flag(stream, utf8).
+
 % Carga de los módulos del sistema experto
 :- consult(base_conocimiento).
 :- consult(calculo_muestra).
@@ -14,9 +18,10 @@
 :- use_module(library(http/http_dispatch)).
 :- use_module(library(http/html_write)).
 :- use_module(library(http/http_parameters)).
-:- use_module(library(http/http_client)).
 :- use_module(library(http/http_header)).
-:- use_module(library(http/http_error)).
+:- use_module(library(http/mimetype)).
+:- use_module(library(http/http_wrapper)).
+:- use_module(library(http/http_session)).
 
 % Puerto por defecto
 :- dynamic puerto_servidor/1.
@@ -41,19 +46,108 @@ start_server :-
 
 % Detener el servidor
 stop_server :-
-    http_stop_server(8080, []).
+    puerto_servidor(Puerto),
+    http_stop_server(Puerto, []).
 
 % Cambiar el puerto (opcional)
 set_port(Puerto) :-
     retractall(puerto_servidor(_)),
     assertz(puerto_servidor(Puerto)).
 
+% Definición de la ubicación raíz
+:- multifile http:location/3.
+:- dynamic   http:location/3.
+http:location(root, /, []).
+
+% Estilo CSS para todas las páginas
+css_style -->
+    html(style(
+'body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px;
+    color: #333;
+    max-width: 800px;
+    margin: 0 auto;
+}
+h1, h2, h3 {
+    color: #2c3e50;
+}
+ul {
+    padding-left: 20px;
+}
+a {
+    color: #3498db;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+form div {
+    margin-bottom: 15px;
+}
+input[type="text"], input[type="number"] {
+    padding: 8px;
+    width: 250px;
+    margin-left: 10px;
+}
+input[type="submit"] {
+    padding: 8px 20px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+.advertencia {
+    background-color: #fff3cd;
+    border-left: 5px solid #ffc107;
+    padding: 10px;
+    margin: 15px 0;
+}
+.recomendacion, .resultado {
+    background-color: #e8f4f8;
+    border-left: 5px solid #3498db;
+    padding: 15px;
+    margin: 15px 0;
+}
+dl dt {
+    font-weight: bold;
+    margin-top: 15px;
+}
+dl dd {
+    margin-left: 20px;
+}
+footer {
+    margin-top: 40px;
+    color: #7f8c8d;
+    font-size: 0.9em;
+}'
+    )).
+
+% Plantilla de página HTML
+page_template(Title, Content) -->
+    html(html([
+        head([
+            title(Title),
+            meta([charset='UTF-8']),
+            \css_style
+        ]),
+        body([
+            Content,
+            footer([
+                hr([]),
+                p('LP3-SistemaExperto - Interfaz Web')
+            ])
+        ])
+    ])).
+
 %% HANDLERS HTTP %%
 
 % Handler para página principal - Menú con enlaces a todas las opciones
 pagina_principal(_Request) :-
     reply_html_page(
-        [title('LP3-SistemaExperto')],
+        page_template('LP3-SistemaExperto'),
         [
             h1('🎯 Sistema Experto en Técnicas de Muestreo'),
             h2('📋 Menú Principal'),
@@ -66,10 +160,6 @@ pagina_principal(_Request) :-
                 li(a(href('/recgen'), '6. Ver recomendaciones generales')),
                 li(a(href('/reset'), '7. Limpiar datos ingresados')),
                 li(a(href('/salir'), '8. Salir'))
-            ]),
-            footer([
-                hr([]),
-                p('LP3-SistemaExperto - Interfaz Web')
             ])
         ]
     ).
@@ -82,7 +172,7 @@ ingresar_handler(Request) :-
 % GET - Muestra el formulario
 ingresar_handler(get, _Request) :-
     reply_html_page(
-        [title('Ingresar Datos')],
+        page_template('Ingresar Datos'),
         [
             h1('Ingresar características de la población'),
             form([action='/ingresar', method='post'], [
@@ -147,7 +237,7 @@ ingresar_handler(post, Request) :-
 
     % Respondemos confirmando la operación
     reply_html_page(
-        [title('Datos Guardados')],
+        page_template('Datos Guardados'),
         [
             h1('Datos Registrados'),
             p('✅ Características registradas correctamente.'),
@@ -168,11 +258,11 @@ mostrar_advertencias(Advertencias) -->
 % Handler para mostrar datos ingresados
 mostrar_handler(_Request) :-
     % Capturamos todos los datos actuales
-    findall(Hecho-Descripcion, hecho_descripcion(Hecho, Descripcion), Hechos),
+    findall(Hecho-Descripcion, (hecho_descripcion(Hecho, Descripcion), call(Hecho)), Hechos),
     
     % Generamos la respuesta HTML
     reply_html_page(
-        [title('Datos Ingresados')],
+        page_template('Datos Ingresados'),
         [
             h1('🔍 Datos Ingresados'),
             \mostrar_hechos(Hechos),
@@ -208,7 +298,7 @@ recomendar_handler(_Request) :-
         recomendacion(Tecnica, RecomendacionExtra),
         
         reply_html_page(
-            [title('Técnica Recomendada')],
+            page_template('Técnica Recomendada'),
             [
                 h1('Técnica de Muestreo Recomendada'),
                 div(class('recomendacion'), [
@@ -224,7 +314,7 @@ recomendar_handler(_Request) :-
     ;
         % Si no se puede determinar una técnica
         reply_html_page(
-            [title('No se puede recomendar')],
+            page_template('No se puede recomendar'),
             [
                 h1('No se puede determinar una técnica'),
                 p('⚠️ No se pudo determinar una técnica de muestreo adecuada con los datos proporcionados.'),
@@ -249,7 +339,7 @@ calcular_handler(Request) :-
 % GET - Formulario para ingresar datos del cálculo
 calcular_handler(get, _Request) :-
     reply_html_page(
-        [title('Calcular Muestra')],
+        page_template('Calcular Muestra'),
         [
             h1('📊 Cálculo de Tamaño de Muestra'),
             form([action='/calcular', method='post'], [
@@ -298,7 +388,7 @@ calcular_handler(post, Request) :-
     
     % Mostramos el resultado
     reply_html_page(
-        [title('Resultado del Cálculo')],
+        page_template('Resultado del Cálculo'),
         [
             h1('Resultado del Cálculo de Muestra'),
             div(class('resultado'), [
@@ -334,7 +424,7 @@ glosario_handler(_Request) :-
     
     % Generamos la respuesta HTML
     reply_html_page(
-        [title('Glosario')],
+        page_template('Glosario'),
         [
             h1('📘 Glosario de Técnicas de Muestreo'),
             div(class('glosario'), [
@@ -360,7 +450,7 @@ recgen_handler(_Request) :-
     
     % Generamos la respuesta HTML
     reply_html_page(
-        [title('Recomendaciones Generales')],
+        page_template('Recomendaciones Generales'),
         [
             h1('📄 Recomendaciones Generales'),
             div(class('recomendaciones'), [
@@ -389,7 +479,7 @@ reset_handler(_Request) :-
     
     % Generamos la respuesta HTML
     reply_html_page(
-        [title('Datos Limpiados')],
+        page_template('Datos Limpiados'),
         [
             h1('Limpiar Datos'),
             p('✅ Datos limpiados correctamente.'),
@@ -401,7 +491,7 @@ reset_handler(_Request) :-
 salir_handler(_Request) :-
     % Generamos la respuesta HTML de despedida
     reply_html_page(
-        [title('Hasta Luego')],
+        page_template('Hasta Luego'),
         [
             h1('👋 ¡Hasta luego!'),
             p('Gracias por utilizar el Sistema Experto en Técnicas de Muestreo.'),
@@ -416,82 +506,13 @@ checkbox(Name, Value, Checked, Attributes) -->
     { (member(checked, Checked) -> CheckedAttr = [checked]; CheckedAttr = []) },
     html(input([type=checkbox, name=Name, value=Value|CheckedAttr])).
 
-:- multifile http:location/3.
-:- dynamic   http:location/3.
+% Si necesitamos verificar si las inconsistencias ya están definidas
+:- dynamic verificar_inconsistencias/0.
 
-% Definición de la ubicación raíz
-http:location(root, /, []).
-
-% Añadimos un poco de estilo CSS inline para mejorar la apariencia
-:- multifile 
-    user:head//2.
-
-user:head(_, Head) -->
-    html(Head),
-    html([
-        style([
-'
-body {
-    font-family: Arial, sans-serif;
-    line-height: 1.6;
-    margin: 0;
-    padding: 20px;
-    color: #333;
-    max-width: 800px;
-    margin: 0 auto;
-}
-h1, h2, h3 {
-    color: #2c3e50;
-}
-ul {
-    padding-left: 20px;
-}
-a {
-    color: #3498db;
-    text-decoration: none;
-}
-a:hover {
-    text-decoration: underline;
-}
-form div {
-    margin-bottom: 15px;
-}
-input[type="text"], input[type="number"] {
-    padding: 8px;
-    width: 250px;
-    margin-left: 10px;
-}
-input[type="submit"] {
-    padding: 8px 20px;
-    background-color: #3498db;
-    color: white;
-    border: none;
-    cursor: pointer;
-}
-.advertencia {
-    background-color: #fff3cd;
-    border-left: 5px solid #ffc107;
-    padding: 10px;
-    margin: 15px 0;
-}
-.recomendacion, .resultado {
-    background-color: #e8f4f8;
-    border-left: 5px solid #3498db;
-    padding: 15px;
-    margin: 15px 0;
-}
-dl dt {
-    font-weight: bold;
-    margin-top: 15px;
-}
-dl dd {
-    margin-left: 20px;
-}
-footer {
-    margin-top: 40px;
-    color: #7f8c8d;
-    font-size: 0.9em;
-}
-'
-        ])
-    ]).
+% Implementación de verificar_inconsistencias si no está definida en base_conocimiento
+:- current_predicate(verificar_inconsistencias/0) -> true 
+   ; assertz((verificar_inconsistencias :- 
+        (poblacion_homogenea, poblacion_heterogenea ->
+            writeln("⚠️ Advertencia: La población no puede ser homogénea y heterogénea a la vez.")
+        ; true)
+    )).
